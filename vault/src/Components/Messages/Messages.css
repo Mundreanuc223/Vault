@@ -1,0 +1,16 @@
+/* Be more specific with class names */
+.messages-wrapper {
+    /* Styles for the wrapper in the Messages component */
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+
+.messages-form {
+    /* Specific styling for the form in Messages */
+    margin-top: 10px;
+}
+
+.messages-wrapper h1 {
+    /* Specific styling for the h1 in Messages */
+    color: #333;
+}

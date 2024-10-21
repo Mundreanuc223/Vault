@@ -1,10 +1,29 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, session, redirect, url_for
 import sqlite3
 from datetime import datetime
+from datetime import timedelta
 from flask_cors import CORS
+from flask_bcrypt import Bcrypt
+from flask_session import Session
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True)
+bcrypt = Bcrypt(app)
+
+# Configure the Flask app to use SQLite for session storage
+app.config['SECRET_KEY'] = '4d8486b39ee93f76f6d71e655c3fe5141816c5bd003a9d659d3b16f99a4148598ddaed15e9c8fc6a07db1de07d4845f216143390a7429b8ad8a03db96b390045d8887af41f4d1db2f696f0a8003d1062'
+app.config['SESSION_TYPE'] = 'sqlalchemy'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///vault_database.db?timeout=30'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(minutes=30) 
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SESSION_PERMANENT'] = True
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_COOKIE_PATH'] = '/'
+db = SQLAlchemy(app)
+app.config['SESSION_SQLALCHEMY'] = db
+
+Session(app)
 
 # Creates the database with multiple tables
 def init_db():
@@ -56,8 +75,17 @@ def init_db():
     connection.close()
 
 def get_db_connection():
-    connection = sqlite3.connect('vault_database.db', timeout=10.0)
+    connection = sqlite3.connect('vault_database.db', timeout=30.0) 
     return connection
+
+
+class User(db.Model):
+    user_id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+    first_name = db.Column(db.String(120), nullable=False)
+    last_name = db.Column(db.String(120), nullable=False)
 
 #  Initializes the database (will only need to be run when first creating the DB and anytime we add new fields/schemas to the tables
 @app.route('/init', methods=['GET'])
@@ -86,20 +114,25 @@ def login():
     cursor = conn.cursor()
 
     if '@' not in username:
-        # Checking if username is in database and if password is correct
-        cursor.execute("SELECT username, password FROM users WHERE username = ? AND password = ?", (username, password))
-        user = cursor.fetchone()
-        conn.close()
+        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
     else:
-        # Checking if email is in database and if password is correct
-        cursor.execute("SELECT email, password FROM users WHERE email = ? AND password = ?", (username, password))
-        user = cursor.fetchone()
-        conn.close()
+        cursor.execute("SELECT password FROM users WHERE email = ?", (username,))
+    
+    user = cursor.fetchone()
+    conn.close()
 
-    if user:
-        return jsonify({"status": "success", "message": "Login successful!"}), 200
-    else:
-        return jsonify({"status": "failure", "message": "Username or password incorrect."}), 400
+    if user is None or not bcrypt.check_password_hash(user[0], password):
+        return jsonify({"status": "failure", "message": "Username or password incorrect."}), 401
+
+    # Set the session and force it to be saved
+    session['username'] = username
+    session.modified = True  # Ensure the session is saved
+    print("Session after login:", session)  # Add this line for debugging
+    return jsonify({"status": "success", "message": "Login successful!"}), 200
+
+
+
+        
     
 # Registration handling
 @app.route('/register', methods=['POST'])
@@ -113,26 +146,19 @@ def register():
     password = data['password']
     confirmedPassword = data['confirmedPassword']
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
-    existing_user = cursor.fetchone()
-
-    if existing_user:
-        # Username is already in database/is taken
-        conn.close()
-        return jsonify({"status": "failure", "message": "Username already taken"}), 409
-    
-    # Checking if passwords match
     if password != confirmedPassword:
         return jsonify({"status": "failure", "message": "Passwords do not match."}), 401
 
-    # Adding user info into the database
-    cursor.execute("INSERT INTO users (username, email, password, first_name, last_name) VALUES (?, ?, ?, ?, ?)", 
-                   (username, email, password, firstName, lastName))
-    conn.commit()
-    conn.close()
+    hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    existing_user = User.query.filter((User.username == username) | (User.email == email)).first()
+    if existing_user:
+        return jsonify({"status": "failure", "message": "Username or email already taken"}), 409
+
+    new_user = User(username=username, email=email, password=hashed_password, first_name=firstName, last_name=lastName)
+    db.session.add(new_user)
+    db.session.commit()
+
     return jsonify({"status": "success", "message": "Account created!"}), 201
 
 # Retrieve single user by ID
@@ -166,6 +192,16 @@ def update_user(user_id):
     conn.close()
 
     return jsonify({"message": "User profile updated!"}), 200
+
+@app.route('/home', methods=['GET'])
+def home():
+    print("Session data at /home:", session)  # Debug the session data
+    if 'username' in session:
+        return jsonify({"message": f"Welcome {session['username']}!"}), 200
+    else:
+        return jsonify({"message": "Not logged in."}), 401
+
+
 
 # Create a time capsule / post
 @app.route('/posts', methods=['POST'])
@@ -243,5 +279,7 @@ def reset_password():
    
 
 if __name__ == '__main__':
-    init_db()
+    with app.app_context():
+        db.create_all() 
+        init_db()
     app.run(debug=True)
