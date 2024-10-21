@@ -1,6 +1,6 @@
 # Backend Guide
 
-## 1. Ensure you have SQLite, Flask, Flask-cors, and Flask-bcrypt downloaded
+## 1. Ensure you have SQLite, Flask, Flask-cors, Flask-bcrypt, and Flask-Session downloaded
 
 
 ### Table Format Example:
