@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useParams } from 'react-router-dom';
 import './Profile.css';
 import Navbar from '../HomeHeader/HomeHeader';
@@ -18,6 +19,7 @@ const Profile = () => {
     const [selectedTab, setSelectedTab] = useState('capsules');
     const [capsulePosts, setCapsulePosts] = useState([]);
     const [regularPosts, setRegularPosts] = useState([]);
+    const navigate = useNavigate();
 
     // Fetch session user
     useEffect(() => {
@@ -147,7 +149,9 @@ const Profile = () => {
                     </div>
                     <p>{bio}</p>
                     {currentUser === profileUsername ? (
-                        <button className="edit-profile-button">Edit Profile</button>
+                        <button className="edit-profile-button" onClick={() => navigate('/edit-profile')}>
+                            Edit Profile
+                        </button>
                     ) : (
                         <button className="follow-button" onClick={toggleFollow}>
                             {isFollowing ? 'Unfollow' : 'Follow'}
